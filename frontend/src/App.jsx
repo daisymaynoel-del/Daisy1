@@ -8,6 +8,7 @@ import TrendTracker from './pages/TrendTracker'
 import Suggestions from './pages/Suggestions'
 import Reports from './pages/Reports'
 import Upload from './pages/Upload'
+import Chat from './pages/Chat'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="chat" element={<Chat />} />
           <Route path="content" element={<ContentFeed />} />
           <Route path="approval" element={<Approval />} />
           <Route path="analytics" element={<Analytics />} />

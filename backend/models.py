@@ -211,3 +211,34 @@ class Setting(Base):
     key = Column(String, primary_key=True)
     value = Column(Text, nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role = Column(String, nullable=False)   # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CreativeBrief(Base):
+    """
+    Standing instructions from the owner — applied to every piece of content
+    the agent generates until updated.
+    """
+    __tablename__ = "creative_briefs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    platform = Column(String, default="both")        # 'instagram', 'tiktok', 'both'
+    video_length_seconds = Column(Integer, default=15)
+    hook_style = Column(String)                       # e.g. "before/after", "POV", "question"
+    music_preference = Column(String)                 # e.g. "trending pop", "no music", specific track
+    tone = Column(String, default="casual")           # casual / educational / dramatic
+    special_instructions = Column(Text)               # free-text from owner
+    content_pillar = Column(String)                   # preferred pillar for this brief
+    cta = Column(String, default="Book via link in bio")
+    always_subtitle = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())

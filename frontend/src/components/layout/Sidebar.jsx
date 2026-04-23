@@ -1,19 +1,20 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Film, CheckSquare, BarChart2,
-  TrendingUp, Lightbulb, FileText, Upload
+  TrendingUp, Lightbulb, FileText, Upload, MessageSquare
 } from 'lucide-react'
 import clsx from 'clsx'
 
 const links = [
   { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/content',     icon: Film,            label: 'Content Feed' },
+  { to: '/chat',        icon: MessageSquare,   label: 'Agent Chat' },
+  { to: '/upload',      icon: Upload,          label: 'Upload Content' },
   { to: '/approval',    icon: CheckSquare,     label: 'Approval Queue' },
+  { to: '/content',     icon: Film,            label: 'Content Feed' },
   { to: '/analytics',   icon: BarChart2,       label: 'Analytics' },
   { to: '/trends',      icon: TrendingUp,      label: 'Trend Tracker' },
   { to: '/suggestions', icon: Lightbulb,       label: 'Suggestions' },
   { to: '/reports',     icon: FileText,        label: 'Reports' },
-  { to: '/upload',      icon: Upload,          label: 'Upload Content' },
 ]
 
 export default function Sidebar() {

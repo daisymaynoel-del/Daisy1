@@ -25,6 +25,7 @@ def init_db():
     from models import (  # noqa: F401
         ContentAsset, Post, PostMetrics, ViralBenchmark,
         Trend, Pattern, StrategyReport, Setting,
+        ChatMessage, CreativeBrief,
     )
     Base.metadata.create_all(bind=engine)
     _seed_default_settings()

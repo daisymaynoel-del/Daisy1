@@ -59,7 +59,7 @@ app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads"
 app.mount("/thumbnails", StaticFiles(directory=settings.thumbnail_dir), name="thumbnails")
 
 # Register all routes
-from routes import assets, posts, metrics, trends, suggestions, reports, settings as settings_route
+from routes import assets, posts, metrics, trends, suggestions, reports, settings as settings_route, chat
 
 app.include_router(assets.router, prefix="/api")
 app.include_router(posts.router, prefix="/api")
@@ -68,6 +68,7 @@ app.include_router(trends.router, prefix="/api")
 app.include_router(suggestions.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(settings_route.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
 
 
 @app.get("/health")

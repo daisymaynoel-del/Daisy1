@@ -208,11 +208,16 @@ export default function Upload() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-charcoal-700 mb-1.5 block">Notes for AI (optional)</label>
+                <label className="text-sm font-medium text-charcoal-700 mb-1.5 block">
+                  Your instructions for this video
+                </label>
+                <p className="text-xs text-charcoal-400 mb-2">
+                  Tell the agent exactly how you want this post made — hook, music, length, style, anything.
+                </p>
                 <textarea
-                  placeholder="e.g. 'This is a balayage transformation — make sure patch test notice is included'"
+                  placeholder={`Examples:\n• "Make this 15 seconds, use a before/after hook, add trending pop music"\n• "This is a balayage — lead with the reveal, use a dramatic hook, include patch test notice"\n• "Keep it educational, explain the technique, 30 seconds, no music"`}
                   className="w-full text-sm border border-charcoal-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
-                  rows={2}
+                  rows={4}
                   value={generateConfig.notes}
                   onChange={(e) => setGenerateConfig(c => ({ ...c, notes: e.target.value }))}
                 />

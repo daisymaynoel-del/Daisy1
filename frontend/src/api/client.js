@@ -69,4 +69,12 @@ export const api = {
   getSettings: () => request('/settings/'),
   updateSettings: (data) => request('/settings/', { method: 'PATCH', body: JSON.stringify(data) }),
   getBrandBible: () => request('/settings/brand-bible'),
+
+  // Chat & Creative Brief
+  sendChatMessage: (message) => request('/chat/message', { method: 'POST', body: JSON.stringify({ message }) }),
+  getChatHistory: () => request('/chat/history'),
+  clearChatHistory: () => request('/chat/history', { method: 'DELETE' }),
+  getChatBrief: () => request('/chat/brief'),
+  updateChatBrief: (data) => request('/chat/brief', { method: 'POST', body: JSON.stringify(data) }),
+  generateBriefFromInstructions: (data) => request('/chat/generate-brief', { method: 'POST', body: JSON.stringify(data) }),
 }
