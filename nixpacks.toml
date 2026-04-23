@@ -3,7 +3,8 @@ nixPkgs = ["python311", "nodejs_20", "ffmpeg", "file"]
 
 [phases.install]
 cmds = [
-  "pip install -r backend/requirements.txt",
+  "python3 -m pip install --upgrade pip",
+  "python3 -m pip install -r backend/requirements.txt",
   "cd frontend && npm install"
 ]
 
@@ -11,4 +12,4 @@ cmds = [
 cmds = ["cd frontend && npm run build"]
 
 [start]
-cmd = "cd backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
+cmd = "cd backend && python3 -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"
