@@ -70,16 +70,17 @@ app.include_router(reports.router, prefix="/api")
 app.include_router(settings_route.router, prefix="/api")
 
 
-@app.get("/")
-def root():
-    return {
-        "service": "EASTEND Social Media Growth Agent",
-        "status": "running",
-        "demo_mode": settings.demo_mode,
-        "docs": "/docs",
-    }
-
-
 @app.get("/health")
 def health():
     return {"status": "ok", "demo_mode": settings.demo_mode}
+
+
+# Serve built React frontend — must be mounted LAST so API routes take precedence
+_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(_frontend_dist):
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
+    logger.info(f"Serving frontend from {_frontend_dist}")
+else:
+    @app.get("/")
+    def root():
+        return {"service": "EASTEND Social Media Growth Agent", "status": "running", "docs": "/docs"}
