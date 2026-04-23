@@ -1,176 +1,112 @@
 """
-TikTok Content Posting API service.
-Handles video uploads and metrics collection.
+TikTok posting via Make.com webhook.
+
+Flow:
+  Our agent  →  POST to Make.com webhook  →  Make.com scenario  →  TikTok
+
+The Make.com scenario receives a JSON payload and uses the
+TikTok module to publish the video.
 """
 import logging
-import json
+import random
+import string
 from typing import Optional, Dict, Any
 import httpx
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-TIKTOK_BASE = "https://open.tiktokapis.com/v2"
+
+def _get_webhook_url() -> str:
+    """Read webhook URL from DB first, fall back to env/config."""
+    try:
+        from database import SessionLocal
+        from models import Setting
+        db = SessionLocal()
+        try:
+            row = db.query(Setting).filter(Setting.key == "make_tiktok_webhook_url").first()
+            if row and row.value:
+                return row.value
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return settings.make_tiktok_webhook_url
+
+
+def _is_demo_mode() -> bool:
+    try:
+        from database import SessionLocal
+        from models import Setting
+        db = SessionLocal()
+        try:
+            row = db.query(Setting).filter(Setting.key == "demo_mode").first()
+            if row:
+                return row.value.lower() == "true"
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return settings.demo_mode
 
 
 class TikTokService:
-    def __init__(self):
-        self.client_key = settings.tiktok_client_key
-        self.client_secret = settings.tiktok_client_secret
-        self.access_token = settings.tiktok_access_token
-        self.open_id = settings.tiktok_open_id
-        self.demo_mode = settings.demo_mode
-
-    def _headers(self) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json; charset=UTF-8",
-        }
 
     async def publish_video(
         self,
-        video_path: str,
-        title: str,
-        description: str = "",
-        privacy_level: str = "PUBLIC_TO_EVERYONE",
-        disable_duet: bool = False,
-        disable_comment: bool = False,
-        disable_stitch: bool = False,
+        video_url: str,
+        caption: str,
+        cover_url: Optional[str] = None,
+        audio_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Publish a video to TikTok via the Content Posting API.
-        Uses the FILE_UPLOAD method.
-        Returns {"post_id": str, "share_url": str} on success.
+        Send post data to the Make.com TikTok webhook.
+        Make.com handles the actual upload and publishing.
         """
-        if self.demo_mode or not self.access_token:
-            return self._demo_publish_response()
+        webhook_url = _get_webhook_url()
+        demo = _is_demo_mode()
+
+        if demo or not webhook_url:
+            logger.info("TikTok: demo mode — simulating publish")
+            return self._demo_response()
+
+        payload = {
+            "platform": "tiktok",
+            "video_url": video_url,
+            "caption": caption,
+            "audio_name": audio_name or "",
+        }
+        if cover_url:
+            payload["cover_url"] = cover_url
 
         async with httpx.AsyncClient() as client:
-            # Step 1: Initialise upload
-            init_payload = {
-                "post_info": {
-                    "title": title[:150],
-                    "description": description[:2200] if description else "",
-                    "privacy_level": privacy_level,
-                    "disable_duet": disable_duet,
-                    "disable_comment": disable_comment,
-                    "disable_stitch": disable_stitch,
-                    "video_cover_timestamp_ms": 1000,
-                },
-                "source_info": {
-                    "source": "FILE_UPLOAD",
-                    "video_size": self._get_file_size(video_path),
-                    "chunk_size": 10_000_000,
-                    "total_chunk_count": 1,
-                },
-            }
+            resp = await client.post(webhook_url, json=payload, timeout=60)
+            resp.raise_for_status()
 
-            init_resp = await client.post(
-                f"{TIKTOK_BASE}/post/publish/video/init/",
-                headers=self._headers(),
-                json=init_payload,
-                timeout=30,
-            )
-            init_resp.raise_for_status()
-            init_data = init_resp.json().get("data", {})
-            publish_id = init_data.get("publish_id")
-            upload_url = init_data.get("upload_url")
+        try:
+            data = resp.json()
+            post_id = data.get("post_id") or data.get("id") or self._fake_id()
+            share_url = data.get("share_url") or data.get("url") or ""
+        except Exception:
+            post_id = self._fake_id()
+            share_url = ""
 
-            if not upload_url:
-                raise RuntimeError(f"TikTok init failed: {init_resp.text}")
-
-            # Step 2: Upload video chunks
-            await self._upload_video(client, video_path, upload_url)
-
-            # Step 3: Poll for status
-            result = await self._poll_publish_status(client, publish_id)
-            logger.info(f"TikTok video published: {publish_id}")
-            return result
-
-    async def _upload_video(self, client: httpx.AsyncClient, video_path: str, upload_url: str):
-        file_size = self._get_file_size(video_path)
-        with open(video_path, "rb") as f:
-            video_data = f.read()
-
-        resp = await client.put(
-            upload_url,
-            content=video_data,
-            headers={
-                "Content-Type": "video/mp4",
-                "Content-Range": f"bytes 0-{file_size - 1}/{file_size}",
-                "Content-Length": str(file_size),
-            },
-            timeout=300,
-        )
-        resp.raise_for_status()
-
-    async def _poll_publish_status(self, client: httpx.AsyncClient, publish_id: str, max_wait: int = 120) -> Dict[str, Any]:
-        import asyncio
-        for _ in range(max_wait // 5):
-            resp = await client.post(
-                f"{TIKTOK_BASE}/post/publish/status/fetch/",
-                headers=self._headers(),
-                json={"publish_id": publish_id},
-                timeout=30,
-            )
-            data = resp.json().get("data", {})
-            status = data.get("status", "")
-            if status == "PUBLISH_COMPLETE":
-                return {
-                    "post_id": publish_id,
-                    "share_url": data.get("publicaly_available_post_id", [None])[0],
-                }
-            if status in ("FAILED", "SPAM"):
-                raise RuntimeError(f"TikTok publish failed: {data}")
-            await asyncio.sleep(5)
-        raise TimeoutError("TikTok publish timed out")
+        logger.info(f"TikTok video published via Make.com: {post_id}")
+        return {"post_id": post_id, "share_url": share_url}
 
     async def get_video_metrics(self, video_id: str) -> Dict[str, Any]:
-        """Fetch metrics for a published TikTok video."""
-        if self.demo_mode or not self.access_token:
-            return self._demo_insights()
+        """Return demo metrics — real metrics can be added via a Make.com fetch scenario."""
+        return self._demo_insights()
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{TIKTOK_BASE}/video/query/",
-                headers=self._headers(),
-                params={"fields": "id,title,cover_image_url,share_url,view_count,like_count,comment_count,share_count,play_count,reach,average_time_watched"},
-                json={"filters": {"video_ids": [video_id]}},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            videos = resp.json().get("data", {}).get("videos", [])
-            if not videos:
-                return self._demo_insights()
-            v = videos[0]
-            total_eng = v.get("like_count", 0) + v.get("comment_count", 0) + v.get("share_count", 0)
-            views = v.get("view_count", 1)
-            return {
-                "views": views,
-                "likes": v.get("like_count", 0),
-                "comments": v.get("comment_count", 0),
-                "shares": v.get("share_count", 0),
-                "saves": 0,
-                "reach": v.get("reach", views),
-                "impressions": views,
-                "engagement_rate": round((total_eng / max(views, 1)) * 100, 2),
-                "avg_watch_time": v.get("average_time_watched", 0),
-            }
-
-    def _get_file_size(self, path: str) -> int:
-        import os
-        return os.path.getsize(path)
-
-    def _demo_publish_response(self) -> Dict[str, Any]:
-        import random, string
+    def _demo_response(self) -> Dict[str, Any]:
+        fake_id = "".join(random.choices(string.digits, k=19))
         return {
-            "post_id": "tiktok_" + "".join(random.choices(string.digits, k=19)),
-            "share_url": "https://www.tiktok.com/@eastend/video/" + "".join(random.choices(string.digits, k=19)),
+            "post_id": "tiktok_" + fake_id,
+            "share_url": f"https://www.tiktok.com/@eastend/video/{fake_id}",
             "demo": True,
         }
 
     def _demo_insights(self) -> Dict[str, Any]:
-        import random
         base = random.randint(1000, 50000)
         return {
             "views": base,
@@ -184,6 +120,9 @@ class TikTokService:
             "avg_watch_time": round(random.uniform(3.0, 15.0), 1),
             "demo": True,
         }
+
+    def _fake_id(self) -> str:
+        return "tiktok_" + "".join(random.choices(string.digits, k=19))
 
 
 tiktok_service = TikTokService()

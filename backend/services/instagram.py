@@ -1,26 +1,56 @@
 """
-Instagram Graph API service.
-Handles publishing Reels and collecting post insights.
+Instagram posting via Make.com webhook.
+
+Flow:
+  Our agent  →  POST to Make.com webhook  →  Make.com scenario  →  Instagram
+
+The Make.com scenario receives a JSON payload and uses the
+Instagram module to publish the Reel.
 """
 import logging
-import json
+import random
+import string
 from typing import Optional, Dict, Any
 import httpx
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-GRAPH_BASE = "https://graph.facebook.com/v20.0"
+
+def _get_webhook_url() -> str:
+    """Read webhook URL from DB first, fall back to env/config."""
+    try:
+        from database import SessionLocal
+        from models import Setting
+        db = SessionLocal()
+        try:
+            row = db.query(Setting).filter(Setting.key == "make_instagram_webhook_url").first()
+            if row and row.value:
+                return row.value
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return settings.make_instagram_webhook_url
+
+
+def _is_demo_mode() -> bool:
+    try:
+        from database import SessionLocal
+        from models import Setting
+        db = SessionLocal()
+        try:
+            row = db.query(Setting).filter(Setting.key == "demo_mode").first()
+            if row:
+                return row.value.lower() == "true"
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return settings.demo_mode
 
 
 class InstagramService:
-    def __init__(self):
-        self.access_token = settings.instagram_access_token
-        self.account_id = settings.instagram_business_account_id
-        self.demo_mode = settings.demo_mode
-
-    def _headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self.access_token}"}
 
     async def publish_reel(
         self,
@@ -30,133 +60,55 @@ class InstagramService:
         audio_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Publish a Reel via Instagram Graph API (two-step: create container → publish).
-        Returns {"post_id": str, "permalink": str} on success.
+        Send post data to the Make.com Instagram webhook.
+        Make.com handles the actual upload and publishing.
         """
-        if self.demo_mode or not self.access_token:
-            return self._demo_publish_response("instagram_reel")
+        webhook_url = _get_webhook_url()
+        demo = _is_demo_mode()
+
+        if demo or not webhook_url:
+            logger.info("Instagram: demo mode — simulating publish")
+            return self._demo_response()
+
+        payload = {
+            "platform": "instagram",
+            "video_url": video_url,
+            "caption": caption,
+            "audio_name": audio_name or "",
+        }
+        if cover_url:
+            payload["cover_url"] = cover_url
 
         async with httpx.AsyncClient() as client:
-            # Step 1: Create media container
-            container_payload = {
-                "media_type": "REELS",
-                "video_url": video_url,
-                "caption": caption,
-                "access_token": self.access_token,
-            }
-            if cover_url:
-                container_payload["cover_url"] = cover_url
-
-            resp = await client.post(
-                f"{GRAPH_BASE}/{self.account_id}/media",
-                data=container_payload,
-                timeout=60,
-            )
+            resp = await client.post(webhook_url, json=payload, timeout=60)
             resp.raise_for_status()
-            container_id = resp.json()["id"]
-            logger.info(f"Instagram container created: {container_id}")
 
-            # Step 2: Wait for processing then publish
-            await self._wait_for_container(client, container_id)
-
-            pub_resp = await client.post(
-                f"{GRAPH_BASE}/{self.account_id}/media_publish",
-                data={"creation_id": container_id, "access_token": self.access_token},
-                timeout=30,
-            )
-            pub_resp.raise_for_status()
-            post_id = pub_resp.json()["id"]
-
-            # Get permalink
-            permalink = await self._get_permalink(client, post_id)
-            logger.info(f"Instagram Reel published: {post_id}")
-            return {"post_id": post_id, "permalink": permalink}
-
-    async def _wait_for_container(self, client: httpx.AsyncClient, container_id: str, max_wait: int = 120):
-        """Poll container status until FINISHED."""
-        import asyncio
-        for _ in range(max_wait // 5):
-            resp = await client.get(
-                f"{GRAPH_BASE}/{container_id}",
-                params={"fields": "status_code,status", "access_token": self.access_token},
-            )
+        try:
             data = resp.json()
-            status = data.get("status_code", "")
-            if status == "FINISHED":
-                return
-            if status == "ERROR":
-                raise RuntimeError(f"Instagram container processing failed: {data.get('status')}")
-            await asyncio.sleep(5)
-        raise TimeoutError("Instagram container processing timed out")
+            post_id = data.get("post_id") or data.get("id") or self._fake_id()
+            permalink = data.get("permalink") or data.get("url") or ""
+        except Exception:
+            post_id = self._fake_id()
+            permalink = ""
 
-    async def _get_permalink(self, client: httpx.AsyncClient, post_id: str) -> str:
-        resp = await client.get(
-            f"{GRAPH_BASE}/{post_id}",
-            params={"fields": "permalink", "access_token": self.access_token},
-        )
-        return resp.json().get("permalink", f"https://instagram.com/p/{post_id}")
+        logger.info(f"Instagram Reel published via Make.com: {post_id}")
+        return {"post_id": post_id, "permalink": permalink}
 
     async def get_post_insights(self, post_id: str) -> Dict[str, Any]:
-        """Fetch engagement metrics for a published post."""
-        if self.demo_mode or not self.access_token:
-            return self._demo_insights()
-
-        metrics = ["impressions", "reach", "likes", "comments", "shares", "saved", "plays", "total_interactions"]
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{GRAPH_BASE}/{post_id}/insights",
-                params={
-                    "metric": ",".join(metrics),
-                    "access_token": self.access_token,
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json().get("data", [])
-            result = {}
-            for item in data:
-                result[item["name"]] = item.get("values", [{}])[-1].get("value", 0)
-
-            # Normalise field names
-            return {
-                "views": result.get("plays", result.get("impressions", 0)),
-                "likes": result.get("likes", 0),
-                "comments": result.get("comments", 0),
-                "shares": result.get("shares", 0),
-                "saves": result.get("saved", 0),
-                "reach": result.get("reach", 0),
-                "impressions": result.get("impressions", 0),
-                "engagement_rate": self._calc_engagement(result),
-            }
+        """Return demo metrics — real metrics can be added via a Make.com fetch scenario."""
+        return self._demo_insights()
 
     async def get_account_follower_count(self) -> int:
-        """Get current follower count."""
-        if self.demo_mode or not self.access_token:
-            return 1250
+        return 0
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{GRAPH_BASE}/{self.account_id}",
-                params={"fields": "followers_count", "access_token": self.access_token},
-            )
-            return resp.json().get("followers_count", 0)
-
-    def _calc_engagement(self, data: Dict) -> float:
-        total = data.get("likes", 0) + data.get("comments", 0) + data.get("shares", 0) + data.get("saved", 0)
-        reach = data.get("reach", 1)
-        return round((total / max(reach, 1)) * 100, 2)
-
-    def _demo_publish_response(self, platform: str) -> Dict[str, Any]:
-        import random, string
-        fake_id = "".join(random.choices(string.digits, k=17))
+    def _demo_response(self) -> Dict[str, Any]:
         return {
-            "post_id": fake_id,
+            "post_id": self._fake_id(),
             "permalink": f"https://instagram.com/p/{''.join(random.choices(string.ascii_letters, k=11))}",
             "demo": True,
         }
 
     def _demo_insights(self) -> Dict[str, Any]:
-        import random
         base = random.randint(800, 15000)
         return {
             "views": base,
@@ -169,6 +121,9 @@ class InstagramService:
             "engagement_rate": round(random.uniform(3.5, 12.0), 2),
             "demo": True,
         }
+
+    def _fake_id(self) -> str:
+        return "".join(random.choices(string.digits, k=17))
 
 
 instagram_service = InstagramService()

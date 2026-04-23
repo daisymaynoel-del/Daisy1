@@ -9,6 +9,7 @@ import Suggestions from './pages/Suggestions'
 import Reports from './pages/Reports'
 import Upload from './pages/Upload'
 import Chat from './pages/Chat'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -18,13 +19,14 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="chat" element={<Chat />} />
-          <Route path="content" element={<ContentFeed />} />
+          <Route path="upload" element={<Upload />} />
           <Route path="approval" element={<Approval />} />
+          <Route path="content" element={<ContentFeed />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="trends" element={<TrendTracker />} />
           <Route path="suggestions" element={<Suggestions />} />
           <Route path="reports" element={<Reports />} />
-          <Route path="upload" element={<Upload />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

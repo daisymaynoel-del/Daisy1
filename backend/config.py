@@ -9,41 +9,33 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-me"
     allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
-    # Instagram
-    instagram_app_id: str = ""
-    instagram_app_secret: str = ""
-    instagram_access_token: str = ""
-    instagram_business_account_id: str = ""
-    facebook_page_id: str = ""
+    # ── Make.com Webhooks ─────────────────────────────────────────────────────
+    # Set these in Railway Variables after creating your Make.com scenarios
+    make_instagram_webhook_url: str = ""   # Webhook URL from your Instagram scenario
+    make_tiktok_webhook_url: str = ""      # Webhook URL from your TikTok scenario
 
-    # TikTok
-    tiktok_client_key: str = ""
-    tiktok_client_secret: str = ""
-    tiktok_access_token: str = ""
-    tiktok_open_id: str = ""
-
-    # Anthropic
+    # ── Anthropic (Claude AI) ─────────────────────────────────────────────────
     anthropic_api_key: str = ""
 
-    # Database
+    # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = "sqlite:///./eastend.db"
 
-    # File storage
+    # ── File Storage ──────────────────────────────────────────────────────────
     upload_dir: str = "uploads"
     thumbnail_dir: str = "thumbnails"
     max_upload_size_mb: int = 500
 
-    # Scheduling
+    # ── Scheduling ────────────────────────────────────────────────────────────
     post_times_instagram: str = "12:00,17:00,19:30"
     post_times_tiktok: str = "12:00,17:00,19:30"
     timezone: str = "Europe/London"
 
-    # Agent behaviour
+    # ── Agent Behaviour ───────────────────────────────────────────────────────
     approval_required: bool = True
     underperform_threshold: float = 0.5
     metrics_collection_intervals: str = "1h,6h,24h,72h,7d"
 
-    # Demo mode
+    # ── Demo Mode ─────────────────────────────────────────────────────────────
     demo_mode: bool = True
 
     class Config:
@@ -65,6 +57,14 @@ class Settings(BaseSettings):
     @property
     def metric_intervals(self) -> List[str]:
         return [i.strip() for i in self.metrics_collection_intervals.split(",")]
+
+    @property
+    def instagram_live(self) -> bool:
+        return bool(self.make_instagram_webhook_url) and not self.demo_mode
+
+    @property
+    def tiktok_live(self) -> bool:
+        return bool(self.make_tiktok_webhook_url) and not self.demo_mode
 
 
 settings = Settings()

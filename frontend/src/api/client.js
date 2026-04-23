@@ -77,4 +77,9 @@ export const api = {
   getChatBrief: () => request('/chat/brief'),
   updateChatBrief: (data) => request('/chat/brief', { method: 'POST', body: JSON.stringify(data) }),
   generateBriefFromInstructions: (data) => request('/chat/generate-brief', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Integrations
+  getIntegrations: () => request('/settings/integrations'),
+  updateIntegrations: (data) => request('/settings/integrations', { method: 'PATCH', body: JSON.stringify(data) }),
+  testWebhook: (data) => request('/settings/integrations/test', { method: 'POST', body: JSON.stringify(data) }),
 }
