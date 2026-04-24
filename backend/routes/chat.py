@@ -1,13 +1,17 @@
 import json
+import re
+import os
+import shutil
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import get_db
-from models import ChatMessage, CreativeBrief
+from models import ChatMessage, CreativeBrief, ContentAsset, Post, PostStatus, Platform, ContentPillar
 from services.chat import chat_with_agent, generate_content_brief_from_instructions
 from services.analytics import get_rolling_averages
+from config import settings
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -39,6 +43,11 @@ class ContentBriefRequest(BaseModel):
 @router.post("/message")
 async def send_message(req: MessageRequest, db: Session = Depends(get_db)):
     """Send a message to the agent and get a response."""
+    # Check for clip intent first
+    clip_intent = _detect_clip_intent(req.message)
+    if clip_intent:
+        return await _handle_clip_request(req.message, clip_intent, db)
+
     # Load history
     history_rows = db.query(ChatMessage).order_by(ChatMessage.created_at).limit(40).all()
     history = [{"role": r.role, "content": r.content} for r in history_rows]
@@ -148,17 +157,13 @@ def _brief_to_dict(brief: CreativeBrief) -> dict:
 
 def _apply_brief_from_instruction(db: Session, instruction: str, existing_brief: Optional[CreativeBrief]):
     """Partially update the brief based on detected instruction keywords."""
-    import re
-
     updates = {}
     il = instruction.lower()
 
-    # Detect video length
     length_match = re.search(r'(\d+)\s*(?:second|sec)', il)
     if length_match:
         updates["video_length_seconds"] = int(length_match.group(1))
 
-    # Detect music preferences
     if "no music" in il or "no audio" in il:
         updates["music_preference"] = "no music"
     elif "trending" in il and "music" in il:
@@ -173,3 +178,149 @@ def _apply_brief_from_instruction(db: Session, instruction: str, existing_brief:
         existing_brief.updated_at = datetime.utcnow()
     else:
         db.add(CreativeBrief(**updates, is_active=True))
+
+
+# ── Clip intent detection ─────────────────────────────────────────────────────
+
+def _detect_clip_intent(message: str) -> Optional[dict]:
+    """
+    Detect if the user wants to split a video into multiple clips.
+    Returns {"num_clips": int, "platform": str, "instructions": str} or None.
+    """
+    msg = message.lower()
+    clip_keywords = ["clip", "split", "cut into", "divide into", "make", "create"]
+    has_clip_keyword = any(k in msg for k in clip_keywords)
+    if not has_clip_keyword:
+        return None
+
+    num_match = re.search(
+        r'(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*'
+        r'(?:different\s+)?(?:clips?|videos?|posts?|reels?)',
+        msg
+    )
+    if not num_match:
+        return None
+
+    word_to_num = {"one":1,"two":2,"three":3,"four":4,"five":5,
+                   "six":6,"seven":7,"eight":8,"nine":9,"ten":10}
+    raw = num_match.group(1)
+    num_clips = word_to_num.get(raw, None) or int(raw)
+    num_clips = max(1, min(num_clips, 10))  # cap at 10
+
+    platform = "tiktok" if "tiktok" in msg else "instagram"
+    return {"num_clips": num_clips, "platform": platform, "instructions": message}
+
+
+async def _handle_clip_request(message: str, intent: dict, db: Session) -> dict:
+    """
+    Split the most recent video asset into multiple clips and create posts for each.
+    """
+    from services.video_processor import create_multiple_clips, get_video_info
+    from services.ai_engine import generate_caption_and_hook
+
+    num_clips = intent["num_clips"]
+    platform = intent["platform"]
+
+    # Save user message
+    db.add(ChatMessage(role="user", content=message))
+    db.commit()
+
+    # Find the most recent video asset
+    asset = (
+        db.query(ContentAsset)
+        .filter(ContentAsset.asset_type == "video")
+        .order_by(ContentAsset.created_at.desc())
+        .first()
+    )
+
+    if not asset:
+        reply = "I couldn't find any uploaded video to clip. Please upload a video first via the Upload page, then ask me to clip it."
+        db.add(ChatMessage(role="assistant", content=reply))
+        db.commit()
+        return {"response": reply, "brief_updated": False, "clips_created": 0}
+
+    info = get_video_info(asset.file_path)
+    duration_mins = round(info["duration"] / 60, 1)
+
+    reply_thinking = (
+        f"On it! I'm splitting your {duration_mins}-minute video into {num_clips} clips "
+        f"for {platform.capitalize()} — cropping to 9:16 and generating a caption for each. "
+        f"This takes a minute..."
+    )
+    db.add(ChatMessage(role="assistant", content=reply_thinking))
+    db.commit()
+
+    # Create the clips with FFmpeg
+    clip_paths = create_multiple_clips(
+        input_path=asset.file_path,
+        num_clips=num_clips,
+        platform=platform,
+    )
+
+    if not clip_paths:
+        reply = "FFmpeg couldn't process the video — it may be corrupted or in an unsupported format. Try re-uploading it."
+        db.add(ChatMessage(role="assistant", content=reply))
+        db.commit()
+        return {"response": reply, "brief_updated": False, "clips_created": 0}
+
+    # Create a ContentAsset + Post for each clip
+    post_ids = []
+    for i, clip_path in enumerate(clip_paths):
+        clip_asset = ContentAsset(
+            filename=os.path.basename(clip_path),
+            original_filename=f"Clip {i+1} of {asset.original_filename}",
+            file_path=clip_path,
+            thumbnail_path=asset.thumbnail_path,
+            asset_type="video",
+            duration_seconds=info["duration"] / num_clips,
+            file_size_bytes=os.path.getsize(clip_path),
+            tags=asset.tags,
+            notes=f"Auto-clipped from {asset.original_filename} — clip {i+1}/{num_clips}",
+            ai_analysis=asset.ai_analysis,
+        )
+        db.add(clip_asset)
+        db.flush()
+
+        ai_content = generate_caption_and_hook(
+            content_pillar="transformation",
+            platform=platform,
+            asset_description=f"Clip {i+1} of {num_clips} from {asset.original_filename}",
+            custom_notes=f"This is clip {i+1} of {num_clips}. {intent['instructions']}",
+        )
+
+        caption = ai_content.get("caption", "")
+        if ai_content.get("patch_test_required"):
+            caption += "\n\n⚠️ Patch test required 48hrs before any colour service."
+
+        post = Post(
+            platform=Platform(platform),
+            status=PostStatus.pending_approval,
+            content_type="reel" if platform == "instagram" else "tiktok_video",
+            asset_id=clip_asset.id,
+            caption=caption,
+            hashtags=json.dumps(ai_content.get("hashtags", [])),
+            audio_name=ai_content.get("audio_suggestion", ""),
+            hook_text=ai_content.get("hook", ""),
+            thumbnail_path=asset.thumbnail_path,
+            content_pillar=ContentPillar.transformation,
+            ai_confidence_score=ai_content.get("confidence_score", 70),
+        )
+        db.add(post)
+        db.flush()
+        post_ids.append(post.id)
+
+    db.commit()
+
+    reply = (
+        f"Done! I've created {len(clip_paths)} clips from your video and generated a unique caption for each one. "
+        f"Head to the **Approval Queue** to review them — approve the ones you like and they'll be scheduled to post automatically."
+    )
+    db.add(ChatMessage(role="assistant", content=reply))
+    db.commit()
+
+    return {
+        "response": reply,
+        "brief_updated": False,
+        "clips_created": len(clip_paths),
+        "post_ids": post_ids,
+    }
