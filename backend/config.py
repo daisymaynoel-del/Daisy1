@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # ── Public base URL (used to build video URLs for Make.com) ───────────────
     public_base_url: str = "https://daisy1.onrender.com"
 
+    # ── Spotify (optional — trending audio for Reels/TikTok) ─────────────────
+    spotify_client_id: str = ""
+    spotify_client_secret: str = ""
+
     # ── Anthropic (Claude AI) ─────────────────────────────────────────────────
     anthropic_api_key: str = ""
 

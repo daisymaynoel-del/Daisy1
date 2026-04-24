@@ -34,10 +34,10 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Refresh trends — daily at 06:00
+    # Refresh trends — every 6 hours for real-time data
     scheduler.add_job(
         _refresh_trends,
-        trigger=CronTrigger(hour=6, minute=0, timezone=settings.timezone),
+        trigger=IntervalTrigger(hours=6),
         id="refresh_trends",
         replace_existing=True,
     )
@@ -161,9 +161,9 @@ async def _collect_metrics():
 async def _refresh_trends():
     db: Session = SessionLocal()
     try:
-        from services.trends import refresh_trends
-        result = await refresh_trends(db)
-        logger.info(f"Daily trend refresh: {result}")
+        from services.trends_realtime import fetch_and_store_realtime_trends
+        result = await fetch_and_store_realtime_trends(db)
+        logger.info(f"Real-time trend refresh: {result}")
     finally:
         db.close()
 

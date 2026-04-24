@@ -21,15 +21,14 @@ async def lifespan(app: FastAPI):
     init_db()
     start_scheduler()
 
-    # Seed demo trends on first run
-    if settings.demo_mode:
-        from database import SessionLocal
-        from services.trends import refresh_trends
-        db = SessionLocal()
-        try:
-            await refresh_trends(db)
-        finally:
-            db.close()
+    # Fetch real-time trends on startup
+    from database import SessionLocal
+    from services.trends_realtime import fetch_and_store_realtime_trends
+    db = SessionLocal()
+    try:
+        await fetch_and_store_realtime_trends(db)
+    finally:
+        db.close()
 
     yield
 
