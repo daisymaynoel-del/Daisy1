@@ -77,7 +77,7 @@ def health():
 
 
 # Serve built React frontend — must be mounted LAST so API routes take precedence
-_frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+_frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 if os.path.exists(_frontend_dist):
     app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
     logger.info(f"Serving frontend from {_frontend_dist}")
