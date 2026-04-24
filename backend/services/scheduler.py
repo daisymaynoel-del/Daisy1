@@ -89,7 +89,8 @@ async def _publish_post(db: Session, post: Post):
     import json
     from services.instagram import instagram_service
     from services.tiktok import tiktok_service
-    from services.content import _build_public_asset_url
+    from services.video_processor import process_for_platform, needs_processing
+    from services.storage import upload_video, upload_image
 
     post.status = PostStatus.publishing
     db.commit()
@@ -104,21 +105,34 @@ async def _publish_post(db: Session, post: Post):
         if not asset:
             raise ValueError(f"Post {post.id} has no asset")
 
-        asset_url = _build_public_asset_url(asset.file_path)
+        platform_name = post.platform.value  # "instagram" or "tiktok"
 
+        # ── Step 1: clip & crop video if needed ───────────────────────────────
+        video_path = asset.file_path
+        if asset.asset_type == "video" and needs_processing(video_path, platform_name):
+            logger.info(f"Processing video for {platform_name}: {video_path}")
+            video_path = process_for_platform(video_path, platform=platform_name)
+
+        # ── Step 2: upload processed video to Cloudinary for a public URL ─────
+        video_url = upload_video(video_path)
+        cover_url = upload_image(asset.thumbnail_path) if asset.thumbnail_path else None
+
+        # ── Step 3: send to Make.com webhook ─────────────────────────────────
         if post.platform == Platform.instagram:
             result = await instagram_service.publish_reel(
-                video_url=asset_url,
+                video_url=video_url,
                 caption=caption,
-                cover_url=_build_public_asset_url(asset.thumbnail_path) if asset.thumbnail_path else None,
+                cover_url=cover_url,
+                audio_name=post.audio_name,
             )
             post.platform_post_id = result.get("post_id")
             post.platform_url = result.get("permalink")
         else:
             result = await tiktok_service.publish_video(
-                video_path=asset.file_path,
-                title=post.hook_text or caption[:100],
-                description=caption,
+                video_url=video_url,
+                caption=caption,
+                cover_url=cover_url,
+                audio_name=post.audio_name,
             )
             post.platform_post_id = result.get("post_id")
             post.platform_url = result.get("share_url")
@@ -126,7 +140,7 @@ async def _publish_post(db: Session, post: Post):
         post.status = PostStatus.published
         post.published_time = datetime.utcnow()
         db.commit()
-        logger.info(f"Post {post.id} published to {post.platform.value}: {post.platform_post_id}")
+        logger.info(f"Post {post.id} published to {platform_name}: {post.platform_post_id}")
 
     except Exception as e:
         post.status = PostStatus.failed
@@ -173,9 +187,3 @@ async def _generate_weekly_report():
         db.close()
 
 
-def _build_public_asset_url(file_path: str) -> str:
-    """Convert local file path to a publicly accessible URL for API calls."""
-    if not file_path:
-        return ""
-    filename = file_path.replace("\\", "/").split("/")[-1]
-    return f"http://localhost:8000/uploads/{filename}"

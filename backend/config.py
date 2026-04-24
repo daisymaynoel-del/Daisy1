@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     make_instagram_webhook_url: str = ""   # Webhook URL from your Instagram scenario
     make_tiktok_webhook_url: str = ""      # Webhook URL from your TikTok scenario
 
+    # ── Cloudinary (video storage) ────────────────────────────────────────────
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+
+    # ── Public base URL (used to build video URLs for Make.com) ───────────────
+    public_base_url: str = "https://daisy1.onrender.com"
+
     # ── Anthropic (Claude AI) ─────────────────────────────────────────────────
     anthropic_api_key: str = ""
 
