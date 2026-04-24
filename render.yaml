@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: eastend-agent
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DEMO_MODE
+        value: "true"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: MAKE_INSTAGRAM_WEBHOOK_URL
+        value: ""
+      - key: MAKE_TIKTOK_WEBHOOK_URL
+        value: ""
+      - key: SECRET_KEY
+        generateValue: true
