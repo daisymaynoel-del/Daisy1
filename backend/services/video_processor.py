@@ -16,6 +16,16 @@ PLATFORM_MAX_DURATION = {
     "tiktok": 60,
 }
 
+# Target clip lengths for auto-clipping. Tuned for short-form attention spans:
+# slightly under platform max so we have headroom for hook/outro pacing.
+PLATFORM_TARGET_CLIP = {
+    "instagram": 60,
+    "tiktok": 45,
+}
+
+# Minimum clip length we'll keep — anything shorter than this is dropped.
+MIN_CLIP_DURATION = 8.0
+
 
 def get_video_info(file_path: str) -> dict:
     """Return duration, width, height of a video file via ffprobe."""
@@ -126,3 +136,159 @@ def needs_processing(file_path: str, platform: str = "instagram") -> bool:
     info = get_video_info(file_path)
     max_dur = PLATFORM_MAX_DURATION.get(platform, 60)
     return info["duration"] > max_dur or (info["width"] > 0 and info["width"] >= info["height"])
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Full auto-clipping
+# ────────────────────────────────────────────────────────────────────────────
+
+def detect_silence_segments(
+    input_path: str,
+    noise_db: float = -30.0,
+    min_silence_seconds: float = 0.6,
+) -> List[Dict]:
+    """
+    Use ffmpeg's silencedetect filter to find pauses in the audio.
+    Returns a list of {"start": float, "end": float} for each silence span.
+    Empty list if ffmpeg is unavailable, the file has no audio, or detection fails.
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-nostats", "-i", input_path,
+        "-af", f"silencedetect=noise={noise_db}dB:d={min_silence_seconds}",
+        "-f", "null", "-",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    except Exception as e:
+        logger.warning(f"silencedetect failed to run: {e}")
+        return []
+
+    # silencedetect writes to stderr
+    silences: List[Dict] = []
+    current_start: Optional[float] = None
+    for line in (result.stderr or "").splitlines():
+        if "silence_start:" in line:
+            try:
+                current_start = float(line.split("silence_start:")[1].strip().split()[0])
+            except Exception:
+                current_start = None
+        elif "silence_end:" in line and current_start is not None:
+            try:
+                end_token = line.split("silence_end:")[1].strip().split()[0]
+                end = float(end_token)
+                silences.append({"start": current_start, "end": end})
+            except Exception:
+                pass
+            current_start = None
+    return silences
+
+
+def _pick_smart_cut_points(
+    total_duration: float,
+    target_clip: float,
+    silences: List[Dict],
+) -> List[float]:
+    """
+    Pick clip START times near every `target_clip` mark, snapping to the
+    midpoint of the nearest silence span (within ±25% of target_clip) when one exists.
+    Falls back to even spacing when no silence is nearby.
+    """
+    if total_duration <= target_clip:
+        return [0.0]
+
+    # Ideal even spacing
+    num_clips = max(1, int(total_duration // target_clip))
+    starts = [i * target_clip for i in range(num_clips)]
+    if not silences:
+        return starts
+
+    snap_window = target_clip * 0.25
+    snapped: List[float] = []
+    last_end = -1.0
+    for s in starts:
+        if s == 0.0:
+            snapped.append(0.0)
+            last_end = target_clip
+            continue
+        # Find silence span whose midpoint is closest to `s` and within snap_window
+        best = None
+        best_dist = snap_window
+        for sil in silences:
+            mid = (sil["start"] + sil["end"]) / 2
+            if mid <= last_end + MIN_CLIP_DURATION:
+                continue
+            dist = abs(mid - s)
+            if dist <= best_dist:
+                best = mid
+                best_dist = dist
+        chosen = best if best is not None else s
+        snapped.append(chosen)
+        last_end = chosen + target_clip
+    return snapped
+
+
+def auto_clip_video(
+    input_path: str,
+    platform: str = "instagram",
+    target_clip_seconds: Optional[float] = None,
+    use_silence_detection: bool = True,
+    max_clips: int = 12,
+) -> List[Dict]:
+    """
+    Full auto-clipper.
+
+    Reads the video, picks clip start points (silence-aware when possible),
+    runs ffmpeg for each segment, and returns a list of
+    {"path": str, "start": float, "duration": float, "index": int}.
+
+    Returns an empty list on total failure (e.g. unreadable video).
+    """
+    info = get_video_info(input_path)
+    total_duration = info["duration"]
+    if total_duration <= 0:
+        logger.error("auto_clip_video: cannot read duration")
+        return []
+
+    target = target_clip_seconds or PLATFORM_TARGET_CLIP.get(platform, 45)
+    target = min(target, PLATFORM_MAX_DURATION.get(platform, 60))
+
+    if total_duration < MIN_CLIP_DURATION:
+        logger.info(f"auto_clip_video: video too short ({total_duration}s) — skipping")
+        return []
+
+    silences: List[Dict] = []
+    if use_silence_detection:
+        try:
+            silences = detect_silence_segments(input_path)
+            logger.info(f"auto_clip_video: found {len(silences)} silence spans")
+        except Exception as e:
+            logger.warning(f"silence detection failed, falling back to even cuts: {e}")
+
+    starts = _pick_smart_cut_points(total_duration, target, silences)
+    starts = starts[:max_clips]
+
+    results: List[Dict] = []
+    for i, start in enumerate(starts):
+        remaining = total_duration - start
+        if remaining < MIN_CLIP_DURATION:
+            continue
+        duration = min(target, remaining)
+        output_path = os.path.join(
+            settings.upload_dir,
+            f"autoclip_{platform}_{i+1}_{uuid.uuid4().hex[:8]}.mp4",
+        )
+        if _run_ffmpeg(input_path, start, duration, output_path):
+            results.append({
+                "path": output_path,
+                "start": start,
+                "duration": duration,
+                "index": i + 1,
+            })
+            logger.info(
+                f"auto-clip {i+1}/{len(starts)} for {platform}: "
+                f"start={start:.1f}s dur={duration:.1f}s -> {output_path}"
+            )
+        else:
+            logger.warning(f"auto-clip {i+1} failed — skipping")
+
+    return results

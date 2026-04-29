@@ -10,7 +10,12 @@ from database import get_db
 from models import ContentAsset
 from schemas import ContentAssetOut
 from services.content import process_uploaded_asset
+from services.auto_clip import auto_clip_asset
 from config import settings
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -68,7 +73,52 @@ async def upload_asset(
         notes=notes,
     )
 
+    # ── Full auto-clipping ────────────────────────────────────────────────────────────────────
+    # If a long video is uploaded and auto-clipping is enabled, slice it
+    # into platform-ready clips and queue them for approval. This runs inline
+    # because ffmpeg processing is fast for typical sub-10-minute uploads;
+    # for very long videos consider moving to a BackgroundTasks queue.
+    if asset_type == "video" and settings.auto_clip_on_upload:
+        try:
+            summary = auto_clip_asset(db=db, asset=asset)
+            if summary["clips_created"]:
+                logger.info(
+                    f"Auto-clipped asset {asset.id}: "
+                    f"{summary['clips_created']} clip(s) across {summary['platforms']}"
+                )
+            elif summary.get("skipped_reason"):
+                logger.info(
+                    f"Auto-clip skipped for asset {asset.id}: {summary['skipped_reason']}"
+                )
+        except Exception as e:
+            # Never let auto-clip failures break the upload itself
+            logger.error(f"Auto-clip failed for asset {asset.id}: {e}", exc_info=True)
+
     return _asset_to_schema(asset)
+
+
+@router.post("/{asset_id}/auto-clip")
+def trigger_auto_clip(
+    asset_id: int,
+    platforms: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Manually run auto-clipping on an existing asset.
+
+    Query params:
+      platforms: optional comma-separated list (default: configured platforms)
+    """
+    asset = db.query(ContentAsset).filter(ContentAsset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    platform_list: Optional[List[str]] = None
+    if platforms:
+        platform_list = [p.strip().lower() for p in platforms.split(",") if p.strip()]
+
+    summary = auto_clip_asset(db=db, asset=asset, platforms=platform_list)
+    return summary
 
 
 @router.get("/", response_model=List[ContentAssetOut])

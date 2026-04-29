@@ -47,6 +47,16 @@ class Settings(BaseSettings):
     underperform_threshold: float = 0.5
     metrics_collection_intervals: str = "1h,6h,24h,72h,7d"
 
+    # ── Auto-clipping ─────────────────────────────────────────────────────────
+    # When true, every uploaded video longer than auto_clip_min_duration_seconds
+    # is automatically sliced into platform-ready clips and queued for approval.
+    auto_clip_on_upload: bool = True
+    auto_clip_min_duration_seconds: int = 90
+    auto_clip_use_silence_detection: bool = True
+    # Comma-separated list of platforms to auto-clip for (e.g. "instagram,tiktok")
+    auto_clip_platforms: str = "instagram,tiktok"
+    auto_clip_max_per_platform: int = 8
+
     # ── Demo Mode ─────────────────────────────────────────────────────────────
     demo_mode: bool = True
 
@@ -70,6 +80,14 @@ class Settings(BaseSettings):
     @property
     def metric_intervals(self) -> List[str]:
         return [i.strip() for i in self.metrics_collection_intervals.split(",")]
+
+    @property
+    def auto_clip_platform_list(self) -> List[str]:
+        return [
+            p.strip().lower()
+            for p in (self.auto_clip_platforms or "").split(",")
+            if p.strip()
+        ]
 
     @property
     def instagram_live(self) -> bool:
