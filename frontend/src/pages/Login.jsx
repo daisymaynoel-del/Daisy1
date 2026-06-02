@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Scissors } from 'lucide-react'
+import { Lock, Eye, EyeOff } from 'lucide-react'
 
 const PASSWORD = 'Noelzy0528'
 
 export default function Login() {
   const navigate = useNavigate()
   const [value, setValue] = useState('')
+  const [show, setShow] = useState(false)
   const [error, setError] = useState(false)
   const [shake, setShake] = useState(false)
 
@@ -18,59 +19,83 @@ export default function Login() {
     } else {
       setError(true)
       setShake(true)
-      setValue('')
       setTimeout(() => setShake(false), 500)
     }
   }
 
   return (
-    <div className="min-h-screen bg-charcoal-50 flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: '#0d1a2d' }}>
       <div className="w-full max-w-sm">
-        {/* Logo */}
+
+        {/* Icon + title */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-brand-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Scissors size={26} className="text-white" />
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5"
+            style={{ background: '#1e3a5f' }}
+          >
+            <Lock size={28} style={{ color: '#e67a57' }} />
           </div>
-          <h1 className="text-2xl font-bold text-charcoal-900">EASTEND</h1>
-          <p className="text-charcoal-400 text-sm mt-1">Social Media Agent</p>
+          <h1 className="text-2xl font-bold text-white">EASTEND Agent</h1>
+          <p className="text-sm mt-1" style={{ color: '#8899aa' }}>Sign in to your dashboard</p>
         </div>
 
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          className={`bg-white rounded-2xl shadow-sm border border-charcoal-100 p-8 space-y-4 ${shake ? 'animate-shake' : ''}`}
+        {/* Card */}
+        <div
+          className={`rounded-2xl p-8 space-y-4 ${shake ? 'animate-shake' : ''}`}
+          style={{ background: '#142038' }}
         >
           <div>
-            <label className="block text-sm font-medium text-charcoal-700 mb-1.5">
+            <label className="block text-sm font-medium mb-2" style={{ color: '#c8d8e8' }}>
               Password
             </label>
-            <input
-              type="password"
-              value={value}
-              onChange={(e) => { setValue(e.target.value); setError(false) }}
-              placeholder="Enter your password"
-              autoFocus
-              className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-colors ${
-                error
-                  ? 'border-red-300 focus:ring-red-200 bg-red-50'
-                  : 'border-charcoal-200 focus:ring-brand-200'
-              }`}
-            />
+            <div className="relative">
+              <input
+                type={show ? 'text' : 'password'}
+                value={value}
+                onChange={(e) => { setValue(e.target.value); setError(false) }}
+                placeholder="••••••••••"
+                autoFocus
+                className="w-full rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:ring-2 text-white"
+                style={{
+                  background: error ? '#2a1520' : '#ffffff',
+                  color: error ? '#fff' : '#000',
+                  border: error ? '1.5px solid #e67a57' : '1.5px solid #2a3f5f',
+                  focusRingColor: '#e67a57',
+                }}
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => setShow(!show)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+                style={{ color: '#8899aa' }}
+              >
+                {show ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
             {error && (
-              <p className="text-red-500 text-xs mt-1.5">Incorrect password. Try again.</p>
+              <div
+                className="mt-3 rounded-xl px-4 py-3 text-sm font-medium"
+                style={{ background: '#2a1520', border: '1.5px solid #e67a57', color: '#e67a57' }}
+              >
+                Incorrect password. Try again.
+              </div>
             )}
           </div>
 
           <button
-            type="submit"
-            className="btn-primary w-full py-3"
+            type="button"
+            onClick={handleSubmit}
+            className="w-full py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90"
+            style={{ background: '#e67a57', color: '#fff' }}
           >
-            Sign In
+            Sign in
           </button>
-        </form>
+        </div>
 
-        <p className="text-center text-xs text-charcoal-300 mt-6">
-          EASTEND Salon · East London
+        <p className="text-center text-xs mt-6" style={{ color: '#4a6080' }}>
+          EASTEND Well St · Data protected under UK GDPR
         </p>
       </div>
     </div>
