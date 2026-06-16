@@ -11,6 +11,7 @@ import Reports from './pages/Reports'
 import Upload from './pages/Upload'
 import Chat from './pages/Chat'
 import Settings from './pages/Settings'
+import Finance from './pages/Finance'
 
 function RequireAuth({ children }) {
   const authed = localStorage.getItem('eastend_auth') === 'true'
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="trends" element={<TrendTracker />} />
           <Route path="suggestions" element={<Suggestions />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="finance" element={<Finance />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

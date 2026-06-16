@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Film, CheckSquare, BarChart2,
-  TrendingUp, Lightbulb, FileText, Upload, MessageSquare, Settings2
+  TrendingUp, Lightbulb, FileText, Upload, MessageSquare, Settings2, PoundSterling
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -15,6 +15,7 @@ const links = [
   { to: '/trends',      icon: TrendingUp,      label: 'Trend Tracker' },
   { to: '/suggestions', icon: Lightbulb,       label: 'Suggestions' },
   { to: '/reports',     icon: FileText,        label: 'Reports' },
+  { to: '/finance',     icon: PoundSterling,   label: 'Finance' },
   { to: '/settings',    icon: Settings2,       label: 'Settings' },
 ]
 

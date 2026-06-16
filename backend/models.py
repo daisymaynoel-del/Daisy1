@@ -222,6 +222,53 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class BillFrequency(str, enum.Enum):
+    weekly = "weekly"
+    monthly = "monthly"
+    quarterly = "quarterly"
+    annual = "annual"
+    one_off = "one_off"
+
+
+class BillCategory(str, enum.Enum):
+    rent = "rent"
+    utilities = "utilities"
+    supplies = "supplies"
+    staff = "staff"
+    insurance = "insurance"
+    equipment = "equipment"
+    marketing = "marketing"
+    software = "software"
+    other = "other"
+
+
+class Bill(Base):
+    __tablename__ = "bills"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    amount = Column(Float, nullable=False)
+    category = Column(SAEnum(BillCategory), default=BillCategory.other)
+    frequency = Column(SAEnum(BillFrequency), default=BillFrequency.monthly)
+    due_day = Column(Integer)       # day of month for recurring bills (1-31)
+    due_date = Column(Date)         # specific date for one-off bills
+    next_due = Column(Date)         # computed/stored next due date
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class BillReport(Base):
+    __tablename__ = "bill_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    report_content = Column(Text)   # AI markdown report
+    monthly_total = Column(Float, default=0.0)
+    quarterly_total = Column(Float, default=0.0)
+    annual_total = Column(Float, default=0.0)
+
+
 class CreativeBrief(Base):
     """
     Standing instructions from the owner — applied to every piece of content

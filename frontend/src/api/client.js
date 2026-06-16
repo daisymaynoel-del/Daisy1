@@ -82,4 +82,13 @@ export const api = {
   getIntegrations: () => request('/settings/integrations'),
   updateIntegrations: (data) => request('/settings/integrations', { method: 'PATCH', body: JSON.stringify(data) }),
   testWebhook: (data) => request('/settings/integrations/test', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Finance / Bills
+  listBills: () => request('/bills/'),
+  createBill: (data) => request('/bills/', { method: 'POST', body: JSON.stringify(data) }),
+  updateBill: (id, data) => request(`/bills/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteBill: (id) => request(`/bills/${id}`, { method: 'DELETE' }),
+  getBillsSummary: () => request('/bills/summary'),
+  generateBillReport: () => request('/bills/report', { method: 'POST' }),
+  getLatestBillReport: () => request('/bills/report/latest'),
 }
